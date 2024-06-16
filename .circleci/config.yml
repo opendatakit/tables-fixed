@@ -65,14 +65,15 @@ commands:
             # Use a while loop, to loop over each pipeline object in the 'items' list from the response json,
             # and we then encode the pipeline objects in Base64 format using the @base64 filter to avoid bash error with parsing certain characters that cannot be properly escaped for the shell.
             # Then, we decode each Base64-encoded object using the base64 -d command in the for loop.
-            PIPELINES_LIST=()
-            
-            if [ "$(echo "$PIPELINES_RESPONSE" | jq '.items | length')" -gt 0 ]; then
+            PIPELINES_LIST=() # Initialize the array
+
+            # Check if .items exists and is an array
+            if [ "$(echo "$PIPELINES_RESPONSE" | jq -r 'if .items != null and (.items | type == "array") then "true" else "false" end')" == "true" ]; then
                 while IFS= read -r -d $'\n' line; do
                     PIPELINES_LIST+=("$line")
-                done < <(echo "$PIPELINES_RESPONSE" | jq -r '.items[]' | jq -r '@base64')
+                done < <(echo "$PIPELINES_RESPONSE" | jq -r '.items[] | @base64')
             else
-                echo "No pipeline items found."
+                echo "WARN: No pipeline items found"
             fi
             
             for pipeline_base64 in "${PIPELINES_LIST[@]}"; do
