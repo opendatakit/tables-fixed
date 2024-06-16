@@ -50,7 +50,7 @@ commands:
               -u "${CIRCLECI_TOKEN}:" \
             ) 
             [ "$(echo $PIPELINES_RESPONSE | jq -r '.message')" == "Project not found" ] && echo "ERROR: PROJECT NOT FOUND!" && break 2
-
+            echo "Got resonse:\n$PIPELINES_RESPONSE"
             # Plan --
             # get list of all pipelines
             # run a for loop for each pipeline and get its workflows
