@@ -42,7 +42,7 @@ commands:
             
             
             # Make the API request to get the pipelines of the repository
-            PIPELINES_URL="https://circleci.com/api/v2/project/github/${CIRCLE_USERNAME}/${REPO_NAME}/pipeline?branch=${BRANCH}"
+            PIPELINES_URL="https://circleci.com/api/v2/project/github/odk-x/${REPO_NAME}/pipeline?branch=${BRANCH}"
             echo "Fetching pipelines from: $PIPELINES_URL"
             PIPELINES_RESPONSE=$(
             curl --location --request GET $PIPELINES_URL \
