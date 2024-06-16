@@ -42,8 +42,10 @@ commands:
             
             
             # Make the API request to get the pipelines of the repository
+            PIPELINES_URL = "https://circleci.com/api/v2/project/github/${CIRCLE_USERNAME}/${REPO_NAME}/pipeline?branch=${BRANCH}"
+            echo "$PIPELINES_URL"
             PIPELINES_RESPONSE=$(
-            curl --location --request GET "https://circleci.com/api/v2/project/github/${CIRCLE_USERNAME}/${REPO_NAME}/pipeline?branch=${BRANCH}" \
+            curl --location --request GET $PIPELINES_URL \
              --header 'Content-Type: application/json' \
               -u "${CIRCLECI_TOKEN}:" \
             ) 
