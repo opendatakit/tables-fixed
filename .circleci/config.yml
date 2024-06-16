@@ -49,7 +49,7 @@ commands:
              --header 'Content-Type: application/json' \
               -u "${CIRCLECI_TOKEN}:" \
             ) 
-            [ "$(echo $PIPELINES_RESPONSE | jq -r '.mSessage')" == "Project not found" ] && echo "ERROR: PROJECT NOT FOUND!" && break 2
+            [ "$(echo $PIPELINES_RESPONSE | jq -r '.message')" == "Project not found" ] && echo "ERROR: PROJECT NOT FOUND!" && break 2
 
             # Plan --
             # get list of all pipelines
