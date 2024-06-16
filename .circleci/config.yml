@@ -67,9 +67,13 @@ commands:
             # Then, we decode each Base64-encoded object using the base64 -d command in the for loop.
             PIPELINES_LIST=()
             
-            while IFS= read -r -d $'\n' line; do
-              PIPELINES_LIST+=("$line")
-            done < <(echo "$PIPELINES_RESPONSE" | jq -r '.items[]' | jq -r '@base64')
+            if [ "$(echo "$PIPELINES_RESPONSE" | jq '.items | length')" -gt 0 ]; then
+                while IFS= read -r -d $'\n' line; do
+                    PIPELINES_LIST+=("$line")
+                done < <(echo "$PIPELINES_RESPONSE" | jq -r '.items[]' | jq -r '@base64')
+            else
+                echo "No pipeline items found."
+            fi
             
             for pipeline_base64 in "${PIPELINES_LIST[@]}"; do
             
