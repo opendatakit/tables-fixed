@@ -22,8 +22,8 @@ commands:
           command: |
             
             # Install jq for json parsing
-            sudo apt-get update
-            sudo apt-get install jq
+            #sudo apt-get update
+            #sudo apt-get install jq # latest version already installed in this linux image
             
             # Set your CircleCI API token
             CIRCLECI_TOKEN=<<parameters.circleci-token>>
@@ -43,13 +43,14 @@ commands:
             
             # Make the API request to get the pipelines of the repository
             PIPELINES_URL="https://circleci.com/api/v2/project/github/${CIRCLE_USERNAME}/${REPO_NAME}/pipeline?branch=${BRANCH}"
-            echo "$PIPELINES_URL"
+            echo "Fetching pipelines from: $PIPELINES_URL"
             PIPELINES_RESPONSE=$(
             curl --location --request GET $PIPELINES_URL \
              --header 'Content-Type: application/json' \
               -u "${CIRCLECI_TOKEN}:" \
             ) 
-            
+            [ "$(echo $PIPELINES_RESPONSE | jq -r '.mSessage')" == "Project not found" ] && echo "ERROR: PROJECT NOT FOUND!" && break 2
+
             # Plan --
             # get list of all pipelines
             # run a for loop for each pipeline and get its workflows
