@@ -1,7 +1,8 @@
 version: 2.1
 
-##--------Command to download Artifacts with optional parameters-----------##
+
 commands:
+  ##--------Command to download Artifacts with optional parameters-----------##
   get-artifacts:
     parameters:
       description:
@@ -14,6 +15,9 @@ commands:
       branch-name:
         type: string
         default: $CIRCLE_BRANCH
+      circleci-user:
+        type: string
+        default: $CIRCLE_USERNAME
     description: <<parameters.description>>
 
     steps:
@@ -27,6 +31,7 @@ commands:
             # Set the repository and branch
             REPO_NAME=<<parameters.repo-name>>
             BRANCH=<<parameters.branch-name>>
+            CIRCLE_USER=<<parameters.circleci-user>>
             
             # Variables to hold successful job details
             SUCCESSFUL_JOB_ID=""
@@ -36,14 +41,20 @@ commands:
             SUCCESSFUL_JOB_TYPE="" 
             
             echo ""
-            ecco "GET REQUEST TO GET ALL PIPELINES..."
-            
+            echo "GET REQUEST TO GET ALL PIPELINES..."
+            PIPELINE_BASE_URL="https://circleci.com/api/v2/project/github/${CIRCLE_USER}/${REPO_NAME}/pipeline?branch=${BRANCH}"
+            echo "FECTHING FROM ${PIPELINE_BASE_URL} ..."
+            echo ""
+            # jq already installed in the linux image
             # Make the API request to get the pipelines of the repository
             PIPELINES_RESPONSE=$(
-            curl --location --request GET "https://circleci.com/api/v2/project/github/${CIRCLE_USERNAME}/${REPO_NAME}/pipeline?branch=${BRANCH}" \
+            curl --location --request GET ${PIPELINE_BASE_URL} \
              --header 'Content-Type: application/json' \
               -u "${CIRCLECI_TOKEN}:" \
             ) 
+
+            [ "$(echo $PIPELINES_RESPONSE | jq -r '.message')" == "Project not found" ] && echo "ERROR: PROJECT NOT FOUND!" && exit 1
+            echo ""
             # Plan --
             # get list of all pipelines
             # run a for loop for each pipeline and get its workflows
@@ -59,11 +70,18 @@ commands:
             # and we then encode the pipeline objects in Base64 format using the @base64 filter to avoid bash error with parsing certain characters that cannot be properly escaped for the shell.
             # Then, we decode each Base64-encoded object using the base64 -d command in the for loop.
             PIPELINES_LIST=()
+
+            if [ "$(echo "$PIPELINES_RESPONSE" | jq -r '.items | length')" -gt 0 ]; then
+                while IFS= read -r -d $'\n' line; do
+                  PIPELINES_LIST+=("$line")      
+                done < <(echo "$PIPELINES_RESPONSE" | jq -r '.items[]' | jq -r '@base64')
             
-            while IFS= read -r -d $'\n' line; do
-              PIPELINES_LIST+=("$line")      
-            done < <(echo "$PIPELINES_RESPONSE" | jq -r '.items[]' | jq -r '@base64')
-            
+            else
+                echo "NO ITEMS FOUND AT ${PIPELINE_BASE_URL}"
+                exit 1
+            fi
+
+
             for pipeline_base64 in "${PIPELINES_LIST[@]}"; do
 
               echo ""
@@ -78,15 +96,18 @@ commands:
               PIPELINE_ID=$(echo "${PIPELINE_JSON}" | jq -r '.id')
               PIPELINE_NUMBER=$(echo "${PIPELINE_JSON}" | jq -r '.number')
 
-              # # remove echo statements
+              echo ""
               echo "CURRENT PIPELINE ID: ${PIPELINE_ID}"
               echo "CURRENT PIPELINE NUMBER: ${PIPELINE_NUMBER}"
             
               # Make the API request to get Workflow using Pipeline ID for each pipeline
               echo ""
               echo "GET REQUEST TO GET WORKFLOW FOR CURRENT PIPELINE:${PIPELINE_ID} ..."
+              WORKFLOW_BASE_URL="https://circleci.com/api/v2/pipeline/${PIPELINE_ID}/workflow"
+              echo "FECTHING FROM: ${WORKFLOW_BASE_URL}"
+              echo ""
               WORKFLOWS=$( 
-              curl --location --request GET "https://circleci.com/api/v2/pipeline/${PIPELINE_ID}/workflow" \
+              curl --location --request GET ${WORKFLOW_BASE_URL} \
                 --header 'Content-Type: application/json' \
                 -u "${CIRCLECI_TOKEN}:" \
                 )
@@ -95,7 +116,6 @@ commands:
               WORKFLOW_NAME=$(echo "${WORKFLOWS}" | jq -r '.items[0].name')
               WORKFLOW_STATUS=$(echo "${WORKFLOWS}" | jq -r '.items[0].status')  
 
-              #remove echo statements
               echo ""
               echo "WORKFLOW ID: ${WORKFLOW_ID}"
               echo "WORKFLOW NAME: ${WORKFLOW_NAME}"
@@ -104,9 +124,11 @@ commands:
               # Make the API request to get Jobs from workflows for each pipeline
               echo ""
               echo "GET REQUEST TO GET JOB FOR WORKFLOW ID:${WORKFLOW_ID}"
+              JOBS_BASE_URL="https://circleci.com/api/v2/workflow/${WORKFLOW_ID}/job"
+              echo "FECTHING FROM: ${JOBS_BASE_URL} ..."
 
               JOBS_RESPONSE=$( 
-              curl --location --request GET "https://circleci.com/api/v2/workflow/${WORKFLOW_ID}/job" \
+              curl --location --request GET ${JOBS_BASE_URL} \
                 --header 'Content-Type: application/json' \
                 -u "${CIRCLECI_TOKEN}:" \
                 )
@@ -158,34 +180,48 @@ commands:
                   else
                      echo "JOB IS UNSUCCESSFUL, CHECKING THE NEXT JOB"    
                   fi
-                  done
+                done
             done
             
             
             # Make the API request to get the artifacts from job
             echo ""
             echo "GET REQUEST TO GET ARTIFACTS FOR JOB, NAME:${SUCCESSFUL_JOB_NAME}, ID:${SUCCESSFUL_JOB_ID} ..."
+            ARTIFACTS_BASE_URL="https://circleci.com/api/v2/project/github/${CIRCLE_USER}/${REPO_NAME}/${SUCCESSFUL_JOB_NUMBER}/artifacts"
+            echo "FECTHING FROM: ${ARTIFACTS_BASE_URL} ..."
+            echo ""
+
             ARTIFACTS=$( 
-            curl --location --request GET "https://circleci.com/api/v2/project/github/${CIRCLE_USERNAME}/${REPO_NAME}/${SUCCESSFUL_JOB_NUMBER}/artifacts" \
+            curl --location --request GET ${ARTIFACTS_BASE_URL} \
               --header 'Content-Type: application/json' \
               -u "${CIRCLECI_TOKEN}:" \
               )
+
+            echo "ARTIFACTS RESPONSE: ${ARTIFACTS}" 
+            echo ""
+            # Check if the artifacts response is empty or null
+            if [ -z "$ARTIFACTS" ] || [ "$(echo "$ARTIFACTS" | jq -r '.items | length')" -eq 0 ]; then
+              echo "NO ARTIFACTS FOUND FOR JOB: $SUCCESSFUL_JOB_NUMBER"
+              echo ""
+              exit 1
+            fi
+
             ARTIFACT_PATHS=$(echo "$ARTIFACTS" | jq -r '.items[].path')  
             ARTIFACT_URLS=$(echo "$ARTIFACTS" | jq -r '.items[].url')
 
             echo ""
-            echo "ARTIFACT PATHS ARE: ${ARTIFACT_PATHS}"
-            echo "ARTIFACT URLS ARE: ${ARTIFACT_URLS}"
+            echo "ARTIFACT PATHS: ${ARTIFACT_PATHS}"
+            echo "ARTIFACT URLS: ${ARTIFACT_URLS}"
             
             # Download artifacts
             for artifact_url in ${ARTIFACT_URLS}; do
               echo ""
-              echo "DOWNLOAD ARTIFACTS..."
+              echo "DOWNLOADING ARTIFACT: ${artifact_url} ..."
               # Split the given string and extract only the string after the last forward slash ("/") and use as a filename to save
               filename=$(basename ${artifact_url})
               curl -sSL -o $filename ${artifact_url}
             done
-
+  ##--------Command to Clone App Designer and push files to emulator-----------##
   push-appdesigner-files-to-device:
     description: Clone and push the necessary ODK-X App Designer files to the emulator prior to testing Tables
     steps:
@@ -221,7 +257,7 @@ jobs:
     description: Runs unit tests and instrumented tests on the Tables app
     executor:
       name: android/android-machine
-      resource-class: large
+      resource-class: xlarge
       tag: 2024.01.1
     
     working_directory: ~/project
@@ -239,14 +275,14 @@ jobs:
           circleci-token: $API_TOKEN
           repo-name: 'services'
           branch-name: $CIRCLE_BRANCH
-          #branch-name: circleci-demo-2
+          circleci-user: 'odk-x'
 
       - get-artifacts:
           description: Get artifacts from the 'Survey' repository
           circleci-token: $API_TOKEN
           repo-name: 'survey'
           branch-name: $CIRCLE_BRANCH
-          #branch-name: circleci-demo
+          circleci-user: 'odk-x' # The CircleCI username should be changed here if need be. Keeping it as a static "odk-x" for now.
 
       - android/create-avd:
           avd-name: avd
@@ -325,8 +361,7 @@ jobs:
 workflows:
   build-test-workflow:
     jobs:
-        - test
-      # - build
-      # - test:
-      #     requires:
-      #       - build
+        - build
+        - test:
+            requires:
+              - build
