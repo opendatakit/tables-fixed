@@ -1,6 +1,7 @@
 package org.opendatakit.espresso;
 
 import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.Espresso.pressBack;
 import static androidx.test.espresso.action.ViewActions.click;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
 import static androidx.test.espresso.intent.Intents.intended;
@@ -12,8 +13,14 @@ import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
 import static org.hamcrest.Matchers.allOf;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
 import android.content.ComponentName;
 import android.content.Intent;
+import android.view.MenuItem;
 
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.espresso.action.ViewActions;
@@ -26,6 +33,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.mockito.Mockito;
 import org.opendatakit.consts.IntentConsts;
 import org.opendatakit.tables.R;
 import org.opendatakit.tables.activities.ExportCSVActivity;
@@ -104,4 +112,21 @@ public class MainActivityTest {
                 hasAction(Intent.ACTION_DEFAULT),
                 hasExtra(IntentConsts.INTENT_KEY_APP_NAME, appName)));
     }
+
+    @Test
+    public void testStartSync() {
+        onView(withId(R.id.menu_table_manager_sync)).perform(click());
+        onView(withText(R.string.sync)).check(matches(isDisplayed()));
+    }
+
+    @Test
+    public void testOnOptionsItemSelected() {
+        mainActivity.getScenario().onActivity(activity -> {
+            MenuItem menuItem = mock(MenuItem.class);
+            when(menuItem.getItemId()).thenReturn(R.id.menu_web_view_activity_table_manager);
+            boolean result = activity.onOptionsItemSelected(menuItem);
+            assertTrue(result);
+        });
+    }
+
 }
