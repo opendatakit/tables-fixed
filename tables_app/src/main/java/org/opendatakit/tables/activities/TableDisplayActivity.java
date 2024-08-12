@@ -722,7 +722,6 @@ public class TableDisplayActivity extends AbsBaseWebActivity
     return super.onCreateOptionsMenu(menu);
   }
 
-  @SuppressLint("NonConstantResourceId")
   @Override
   public boolean onOptionsItemSelected(MenuItem item) {
     String filename = null;
