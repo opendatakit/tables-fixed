@@ -288,7 +288,7 @@ jobs:
           avd-name: avd
           install: true
           system-image: system-images;android-29;default;x86
-          additional-args: --sdcard 2048M
+          additional-args: -c 2048M
 
       - android/start-emulator:
           avd-name: avd
@@ -319,7 +319,7 @@ jobs:
             adb shell pm list packages
 
       - android/run-tests:
-          test-command: ./gradlew grantPermissionForODKApp connectedSnapshotDebugAndroidTest
+          test-command: ./gradlew grantPermissionForODKApp createSnapshotDebugAndroidTestCoverageReport
           max-tries: 2
 
       - store_artifacts:
