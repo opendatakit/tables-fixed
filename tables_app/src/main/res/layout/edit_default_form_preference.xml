@@ -24,6 +24,7 @@
             android:layout_height="wrap_content"
             android:paddingRight="35dip"
             android:inputType="textNoSuggestions"
+            android:fontFamily="@font/sourcesanspro_regular"
             android:autoText="false"
             android:capitalize="none"
             android:enabled="false"
