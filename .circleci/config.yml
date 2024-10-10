@@ -1,0 +1,367 @@
+version: 2.1
+
+
+commands:
+  ##--------Command to download Artifacts with optional parameters-----------##
+  get-artifacts:
+    parameters:
+      description:
+        type: string
+      circleci-token:
+        type: string
+        default: $API_TOKEN
+      repo-name:
+        type: string
+      branch-name:
+        type: string
+        default: $CIRCLE_BRANCH
+      circleci-user:
+        type: string
+        default: $CIRCLE_USERNAME
+    description: <<parameters.description>>
+
+    steps:
+      - run:
+          name: Get Artifacts
+          command: |
+            
+            # Set your CircleCI API token
+            CIRCLECI_TOKEN=<<parameters.circleci-token>>
+            
+            # Set the repository and branch
+            REPO_NAME=<<parameters.repo-name>>
+            BRANCH=<<parameters.branch-name>>
+            CIRCLE_USER=<<parameters.circleci-user>>
+            
+            # Variables to hold successful job details
+            SUCCESSFUL_JOB_ID=""
+            SUCCESSFUL_JOB_NAME=""
+            SUCCESSFUL_JOB_NUMBER=""
+            SUCCESSFUL_JOB_STATUS=""
+            SUCCESSFUL_JOB_TYPE="" 
+            
+            echo ""
+            echo "GET REQUEST TO GET ALL PIPELINES..."
+            PIPELINE_BASE_URL="https://circleci.com/api/v2/project/github/${CIRCLE_USER}/${REPO_NAME}/pipeline?branch=${BRANCH}"
+            echo "FECTHING FROM ${PIPELINE_BASE_URL} ..."
+            echo ""
+            # jq already installed in the linux image
+            # Make the API request to get the pipelines of the repository
+            PIPELINES_RESPONSE=$(
+            curl --location --request GET ${PIPELINE_BASE_URL} \
+             --header 'Content-Type: application/json' \
+              -u "${CIRCLECI_TOKEN}:" \
+            ) 
+
+            [ "$(echo $PIPELINES_RESPONSE | jq -r '.message')" == "Project not found" ] && echo "ERROR: PROJECT NOT FOUND!" && exit 1
+            echo ""
+            # Plan --
+            # get list of all pipelines
+            # run a for loop for each pipeline and get its workflows
+            # use the workflows to get the job numbers and job ids
+            # run a request to get the job details for each job
+            # check if the job is of type 'build' and status is 'successful'
+            # set that job id as the successful job id, and job number
+            # break from the loop
+            # use that job id and job number to now get the artifact
+            
+            # Parse pipeline list into a list of strings
+            # Use a while loop, to loop over each pipeline object in the 'items' list from the response json,
+            # and we then encode the pipeline objects in Base64 format using the @base64 filter to avoid bash error with parsing certain characters that cannot be properly escaped for the shell.
+            # Then, we decode each Base64-encoded object using the base64 -d command in the for loop.
+            PIPELINES_LIST=()
+
+            if [ "$(echo "$PIPELINES_RESPONSE" | jq -r '.items | length')" -gt 0 ]; then
+                while IFS= read -r -d $'\n' line; do
+                  PIPELINES_LIST+=("$line")      
+                done < <(echo "$PIPELINES_RESPONSE" | jq -r '.items[]' | jq -r '@base64')
+            
+            else
+                echo "NO ITEMS FOUND AT ${PIPELINE_BASE_URL}"
+                exit 1
+            fi
+
+
+            for pipeline_base64 in "${PIPELINES_LIST[@]}"; do
+
+              echo ""
+              echo "RUNNING LOOP OVER LIST OF ALL PIPELINES..."
+              echo ""
+              echo "PIPELINE AS A BASE64 STRUCTURE: ${pipeline_base64}"
+              PIPELINE_JSON=$(echo "$pipeline_base64" | base64 -d)
+
+              echo ""
+              echo "DECODED PIPLEINE AS JSON STRUCTURE IS: ${PIPELINE_JSON}"
+            
+              PIPELINE_ID=$(echo "${PIPELINE_JSON}" | jq -r '.id')
+              PIPELINE_NUMBER=$(echo "${PIPELINE_JSON}" | jq -r '.number')
+
+              echo ""
+              echo "CURRENT PIPELINE ID: ${PIPELINE_ID}"
+              echo "CURRENT PIPELINE NUMBER: ${PIPELINE_NUMBER}"
+            
+              # Make the API request to get Workflow using Pipeline ID for each pipeline
+              echo ""
+              echo "GET REQUEST TO GET WORKFLOW FOR CURRENT PIPELINE:${PIPELINE_ID} ..."
+              WORKFLOW_BASE_URL="https://circleci.com/api/v2/pipeline/${PIPELINE_ID}/workflow"
+              echo "FECTHING FROM: ${WORKFLOW_BASE_URL}"
+              echo ""
+              WORKFLOWS=$( 
+              curl --location --request GET ${WORKFLOW_BASE_URL} \
+                --header 'Content-Type: application/json' \
+                -u "${CIRCLECI_TOKEN}:" \
+                )
+            
+              WORKFLOW_ID=$(echo "${WORKFLOWS}" | jq -r '.items[0].id')  
+              WORKFLOW_NAME=$(echo "${WORKFLOWS}" | jq -r '.items[0].name')
+              WORKFLOW_STATUS=$(echo "${WORKFLOWS}" | jq -r '.items[0].status')  
+
+              echo ""
+              echo "WORKFLOW ID: ${WORKFLOW_ID}"
+              echo "WORKFLOW NAME: ${WORKFLOW_NAME}"
+              echo "WORKFLOW STATUS: ${WORKFLOW_STATUS}"
+            
+              # Make the API request to get Jobs from workflows for each pipeline
+              echo ""
+              echo "GET REQUEST TO GET JOB FOR WORKFLOW ID:${WORKFLOW_ID}"
+              JOBS_BASE_URL="https://circleci.com/api/v2/workflow/${WORKFLOW_ID}/job"
+              echo "FECTHING FROM: ${JOBS_BASE_URL} ..."
+
+              JOBS_RESPONSE=$( 
+              curl --location --request GET ${JOBS_BASE_URL} \
+                --header 'Content-Type: application/json' \
+                -u "${CIRCLECI_TOKEN}:" \
+                )
+            
+                JOBS_LIST=()
+            
+                while IFS= read -r -d $'\n' line; do
+                  JOBS_LIST+=("$line")
+                done < <(echo "$JOBS_RESPONSE" | jq -r '.items[]' | jq -r '@base64')
+            
+                # Run another for loop in the jobs to get only the build jobs, since we have multiple jobs, but most often have only one workflow
+                for job_base64 in "${JOBS_LIST[@]}"; do
+                  echo ""
+                  echo "LOOP THROUGH ALL JOBS IN WORKFLOW, NAME:${WORKFLOW_NAME}, ID: ${WORKFLOW_ID} ..."
+                  echo ""
+                  echo "JOB AS BASE64 STRUCTURE: ${job_base64}"
+                  echo ""
+                  JOB_JSON=$(echo "$job_base64" | base64 -d)
+            
+                  echo "DECODED JOB AS JSON STRUCTURE: ${JOB_JSON}"
+            
+                  JOB_STATUS=$(echo "${JOB_JSON}" | jq -r '.status')
+                  JOB_TYPE=$(echo "${JOB_JSON}" | jq -r '.type') 
+                  JOB_NAME=$(echo "${JOB_JSON}" | jq -r '.name')            
+        
+                  echo ""
+                  echo "CURRENT JOB STATUS: ${JOB_STATUS}"
+                  echo "CURRENT JOB TYPE: ${JOB_TYPE}"
+                  echo "CURRENT JOB NAME: ${JOB_NAME}"
+            
+            
+                  if [ "$JOB_STATUS" = "success" ] && [ "$JOB_TYPE" = "build" ] && [ "$JOB_NAME" = "build" ]; then
+                        echo ""
+                        echo "FOUND A SUCCESSFUL 'Build' JOB"
+        
+                        SUCCESSFUL_JOB_ID=$(echo "${JOB_JSON}" | jq -r '.id')  
+                        SUCCESSFUL_JOB_NAME=$(echo "${JOB_JSON}" | jq -r '.name')
+                        SUCCESSFUL_JOB_NUMBER=$(echo "${JOB_JSON}" | jq -r '.job_number')
+                        SUCCESSFUL_JOB_STATUS=$(echo "${JOB_JSON}" | jq -r '.status')
+                        SUCCESSFUL_JOB_TYPE=$(echo "${JOB_JSON}" | jq -r '.type') 
+
+                        echo ""
+                        echo "SUCCESSFUL JOB ID: ${SUCCESSFUL_JOB_ID}"
+                        echo "SUCCESSFUL JOB NAME: ${SUCCESSFUL_JOB_NAME}"
+                        echo "SUCCESSFUL JOB NUMBER: ${SUCCESSFUL_JOB_NUMBER}"
+                        echo "SUCCESSFUL JOB STATUS: ${SUCCESSFUL_JOB_STATUS}"
+                        echo "SUCCESSFUL JOB TYPE: ${SUCCESSFUL_JOB_TYPE}"
+                        break 2
+                  else
+                     echo "JOB IS UNSUCCESSFUL, CHECKING THE NEXT JOB"    
+                  fi
+                done
+            done
+            
+            
+            # Make the API request to get the artifacts from job
+            echo ""
+            echo "GET REQUEST TO GET ARTIFACTS FOR JOB, NAME:${SUCCESSFUL_JOB_NAME}, ID:${SUCCESSFUL_JOB_ID} ..."
+            ARTIFACTS_BASE_URL="https://circleci.com/api/v2/project/github/${CIRCLE_USER}/${REPO_NAME}/${SUCCESSFUL_JOB_NUMBER}/artifacts"
+            echo "FECTHING FROM: ${ARTIFACTS_BASE_URL} ..."
+            echo ""
+
+            ARTIFACTS=$( 
+            curl --location --request GET ${ARTIFACTS_BASE_URL} \
+              --header 'Content-Type: application/json' \
+              -u "${CIRCLECI_TOKEN}:" \
+              )
+
+            echo "ARTIFACTS RESPONSE: ${ARTIFACTS}" 
+            echo ""
+            # Check if the artifacts response is empty or null
+            if [ -z "$ARTIFACTS" ] || [ "$(echo "$ARTIFACTS" | jq -r '.items | length')" -eq 0 ]; then
+              echo "NO ARTIFACTS FOUND FOR JOB: $SUCCESSFUL_JOB_NUMBER"
+              echo ""
+              exit 1
+            fi
+
+            ARTIFACT_PATHS=$(echo "$ARTIFACTS" | jq -r '.items[].path')  
+            ARTIFACT_URLS=$(echo "$ARTIFACTS" | jq -r '.items[].url')
+
+            echo ""
+            echo "ARTIFACT PATHS: ${ARTIFACT_PATHS}"
+            echo "ARTIFACT URLS: ${ARTIFACT_URLS}"
+            
+            # Download artifacts
+            for artifact_url in ${ARTIFACT_URLS}; do
+              echo ""
+              echo "DOWNLOADING ARTIFACT: ${artifact_url} ..."
+              # Split the given string and extract only the string after the last forward slash ("/") and use as a filename to save
+              filename=$(basename ${artifact_url})
+              curl -sSL -o $filename ${artifact_url}
+            done
+  ##--------Command to Clone App Designer and push files to emulator-----------##
+  push-appdesigner-files-to-device:
+    description: Clone and push the necessary ODK-X App Designer files to the emulator prior to testing Tables
+    steps:
+      - node/install
+      - run:
+          name: Install Grunt
+          command: |
+            npm install -g grunt-cli
+            grunt --version
+      - run:
+          name: clone app designer repository to environment
+          command: |
+            # should replace main with CIRCLE_BRANCH env var
+            git clone -b "main" "https://github.com/$GITHUB_ACTOR/app-designer.git"
+            ls -d */
+            cd app-designer/
+            ls -d */
+            npm install grunt --save-dev
+
+      - run:
+          name: Push Files to Emulator
+          command: |
+            cd ~
+            ls -d */
+            cd project/app-designer/
+            grunt adbpush -f
+
+orbs:
+  android: circleci/android@2.5.0
+  node: circleci/node@5.2.0
+jobs:
+  test:
+    description: Runs unit tests and instrumented tests on the Tables app
+    executor:
+      name: android/android-machine
+      resource-class: xlarge
+      tag: 2024.01.1
+    
+    working_directory: ~/project
+    steps:
+      - checkout
+      - run:
+          name: Chmod Permissions
+          command: sudo chmod +x gradlew
+
+      - attach_workspace:
+          at: ~/project
+
+      - get-artifacts:
+          description: Get artifacts from the 'Services' repository
+          circleci-token: $API_TOKEN
+          repo-name: 'services'
+          branch-name: 'upgrade-jdk11' # replace with $CIRCLE_BRANCH env var eventually
+          circleci-user: 'odk-x'
+
+      - get-artifacts:
+          description: Get artifacts from the 'Survey' repository
+          circleci-token: $API_TOKEN
+          repo-name: 'survey'
+          branch-name: 'upgrade-jdk11' # replace with $CIRCLE_BRANCH env var eventually
+          circleci-user: 'odk-x' # The CircleCI username should be changed here if need be. Keeping it as a static "odk-x" for now.
+
+      - android/create-avd:
+          avd-name: avd
+          install: true
+          system-image: system-images;android-29;default;x86
+          additional-args: --sdcard 2048M
+
+      - android/start-emulator:
+          avd-name: avd
+          no-window: true
+          post-emulator-launch-assemble-command: ""
+
+      # Runs command to push the ODK-X App Designer files to the emulator
+      - push-appdesigner-files-to-device
+
+      # Install Dependencies to emulator
+      - run:
+          name: Install 'Tables' app on emulator
+          command: ./gradlew installSnapshotDebug
+
+      - run:
+          name: Install 'Services' app from downloaded artifacts to emulator
+          command: |
+            # Install Services App on emulator, Will use the `services_app-snapshot-debug.apk` artifact downloaded from the get artifact jobs
+            adb install services_app-snapshot-debug.apk
+            adb shell pm list packages
+
+      - run:
+          name: Install 'Survey' app from downloaded artifacts to emulator
+          command: |
+            
+            # Install Survey App on emulator, Will use the `survey_app-snapshot-debug.apk` artifact downloaded from the get artifact jobs
+            adb install survey_app-snapshot-debug.apk
+            adb shell pm list packages
+
+      - android/run-tests:
+          test-command: ./gradlew grantPermissionForODKApp connectedSnapshotDebugAndroidTest
+          max-tries: 2
+
+      - store_artifacts:
+          name: Store Test Results
+          path: tables_app/build/outputs/androidTest-results
+      - store_artifacts:
+          name: Store Test Reports
+          path: tables_app/build/reports
+
+  build:
+    docker:
+      - image: cimg/android:2024.01
+    steps:
+      - checkout
+      - run:
+          name: Chmod Permissions
+          command: sudo chmod +x gradlew
+      - android/restore-gradle-cache:
+          cache-prefix: v1
+      - run:
+          name: Download Dependencies
+          command: ./gradlew androidDependencies
+      - android/save-gradle-cache:
+          cache-prefix: v1
+      - run:
+          name: Build Tables
+          command: ./gradlew assembleSnapshotDebug
+
+      - store_artifacts:
+          name: Store Build Artifacts
+          path: tables_app/build/outputs/apk
+
+      - persist_to_workspace:
+          root: .
+          paths:
+            - tables_app/build/outputs/apk/
+
+
+workflows:
+  build-test-workflow:
+    jobs:
+        - build
+        - test:
+            requires:
+              - build
